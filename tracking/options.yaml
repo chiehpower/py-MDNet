@@ -1,7 +1,8 @@
 use_gpu: true
 
 # model path
-model_path: "models/mdnet_imagenet_vid.pth"
+# model_path: "models/mdnet_imagenet_vid.pth"
+model_path: "models/mdnet_vot-otb.pth"
 
 # input size
 img_size: 107

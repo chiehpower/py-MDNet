@@ -36,6 +36,15 @@ If you're using this code for your research, please cite:
 - [PyTorch 1.0+](http://pytorch.org/) and its dependencies 
 - for GPU support: a GPU with ~3G memory
 
+## Pre-modified datapath
+### For pretrain
+1. `pretrain/prepro_vot.py` : need to modify the file name of `gt` and two paths of `img_list`.
+2. `datasets/list/vot-otb.txt` : need to modify the folder names for your datasets.
+  
+### For tracking
+1. `tracking/gen_config.py` : need to modify the path of `seq_home` and the file name of `gt_path`.
+2. `tracking/options.yaml` :  need to modify the model path.
+
 ## Usage
 
 ### Tracking
