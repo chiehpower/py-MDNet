@@ -1,7 +1,7 @@
 from scipy.misc import imresize
 import numpy as np
 import cv2
-
+from matplotlib import pyplot as plt
 
 def overlap_ratio(rect1, rect2):
     '''
@@ -28,7 +28,7 @@ def overlap_ratio(rect1, rect2):
 
 def crop_image2(img, bbox, img_size=107, padding=16, flip=False, rotate_limit=0, blur_limit=0):
     x, y, w, h = np.array(bbox, dtype='float32')
-
+    # print("It is x : {}, y : {}, w : {}, h : {}".format(x,y,w,h))
     cx, cy = x + w/2, y + h/2
 
     if padding > 0:
@@ -86,7 +86,6 @@ def crop_image2(img, bbox, img_size=107, padding=16, flip=False, rotate_limit=0,
     if blur_limit and np.random.binomial(1, 0.5):
         blur_size = np.random.choice(np.arange(1, blur_limit + 1, 2))
         patch = cv2.GaussianBlur(patch, (blur_size, blur_size), 0)
-
     return patch
 
 

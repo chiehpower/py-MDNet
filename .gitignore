@@ -1,8 +1,12 @@
-models/*.mat
-results
+trt/*
+models/*
+results/*
 *.pyc
 *.swp
 pretrain/data/
 datasets/OTB_link
 datasets/VOT
 datasets/ILSVRC
+datasets/MDNet_imagenet-vid
+datasets/MDNet_vot-otb
+Relevant_repo

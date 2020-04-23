@@ -22,29 +22,35 @@ from gen_config import gen_config
 
 opts = yaml.safe_load(open('tracking/options.yaml','r'))
 
-
+# Extract pos/neg features
 def forward_samples(model, image, samples, out_layer='conv3'):
     model.eval()
+    # image.size = original size
     extractor = RegionExtractor(image, samples, opts)
+    print("\n Forward samples \n")
     for i, regions in enumerate(extractor):
+        # regions.size = 256,3,107,107
         if opts['use_gpu']:
             regions = regions.cuda()
         with torch.no_grad():
             feat = model(regions, out_layer=out_layer)
+            # feat = 512*3*3
+            # feat.size = 256,4608
         if i==0:
             feats = feat.detach().clone()
         else:
             feats = torch.cat((feats, feat.detach().clone()), 0)
+    # image.size = original size
     return feats
 
-
+# train(model, criterion, init_optimizer, pos_feats, neg_feats, opts['maxiter_init'])
 def train(model, criterion, optimizer, pos_feats, neg_feats, maxiter, in_layer='fc4'):
     model.train()
-
-    batch_pos = opts['batch_pos']
-    batch_neg = opts['batch_neg']
-    batch_test = opts['batch_test']
-    batch_neg_cand = max(opts['batch_neg_cand'], batch_neg)
+    # 每個mini-batch，圖片上隨機採32個正樣本 和96個負樣本
+    batch_pos = opts['batch_pos'] # 32 
+    batch_neg = opts['batch_neg'] # 96
+    batch_test = opts['batch_test'] # 256
+    batch_neg_cand = max(opts['batch_neg_cand'], batch_neg) # 1024
 
     pos_idx = np.random.permutation(pos_feats.size(0))
     neg_idx = np.random.permutation(neg_feats.size(0))
@@ -54,9 +60,9 @@ def train(model, criterion, optimizer, pos_feats, neg_feats, maxiter, in_layer='
         neg_idx = np.concatenate([neg_idx, np.random.permutation(neg_feats.size(0))])
     pos_pointer = 0
     neg_pointer = 0
-
+    print("maxiter: ",maxiter)
     for i in range(maxiter):
-
+        print(i)
         # select pos idx
         pos_next = pos_pointer + batch_pos
         pos_cur_idx = pos_idx[pos_pointer:pos_next]
@@ -90,6 +96,7 @@ def train(model, criterion, optimizer, pos_feats, neg_feats, maxiter, in_layer='
             model.train()
 
         # forward
+        ## pos_score.shape 32 neg_score.shape 96
         pos_score = model(batch_pos_feats, in_layer=in_layer)
         neg_score = model(batch_neg_feats, in_layer=in_layer)
 
@@ -101,10 +108,11 @@ def train(model, criterion, optimizer, pos_feats, neg_feats, maxiter, in_layer='
             torch.nn.utils.clip_grad_norm_(model.parameters(), opts['grad_clip'])
         optimizer.step()
 
-
+## result, result_bb, fps = result, result_bb, fps = run_mdnet(img_list, init_bbox, gt=gt, savefig_dir=savefig_dir, display=display)
 def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
-
+    ## img_list : absolute path of our datasets 
     # Init bbox
+    print("a. Init bbox")
     target_bbox = np.array(init_bbox)
     result = np.zeros((len(img_list), 4))
     result_bb = np.zeros((len(img_list), 4))
@@ -116,24 +124,44 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
         overlap[0] = 1
 
     # Init model
+    print("b. Init model")
     model = MDNet(opts['model_path'])
     if opts['use_gpu']:
         model = model.cuda()
 
     # Init criterion and optimizer 
+    print("c. Init criterion and optimizer")
     criterion = BCELoss()
     model.set_learnable_params(opts['ft_layers'])
     init_optimizer = set_optimizer(model, opts['lr_init'], opts['lr_mult'])
     update_optimizer = set_optimizer(model, opts['lr_update'], opts['lr_mult'])
 
     tic = time.time()
-    # Load first image
+    # Load first image # 讀取第一幀
+    print("d. Load first image")
     image = Image.open(img_list[0]).convert('RGB')
 
     # Draw pos/neg samples
+    print("e. Draw pos/neg samples")
+    # 用第一幀來畫正負樣本
+    # training examples sampling
+        ## trans_pos: 0.1 
+        ## scale_pos: 1.3
+        ## n_pos_init: 500 (最大集合)
+        ## overlap_pos_init: [0.7, 1]
+
+    print("Training examples sampling ...")
+    # pos_examples.shape = (500,4)
     pos_examples = SampleGenerator('gaussian', image.size, opts['trans_pos'], opts['scale_pos'])(
                         target_bbox, opts['n_pos_init'], opts['overlap_pos_init'])
+    # Multi-domain model samples
+        ## trans_neg_init: 1
+        ## scale_neg_init: 1.6
+        ## n_neg_init: 5000 (最大集合)
+        ## overlap_neg_init: [0, 0.5]
 
+    print("Multi-domain model samples ...")
+    # neg_examples.shape = (5000,4)
     neg_examples = np.concatenate([
                     SampleGenerator('uniform', image.size, opts['trans_neg_init'], opts['scale_neg_init'])(
                         target_bbox, int(opts['n_neg_init'] * 0.5), opts['overlap_neg_init']),
@@ -141,16 +169,80 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
                         target_bbox, int(opts['n_neg_init'] * 0.5), opts['overlap_neg_init'])])
     neg_examples = np.random.permutation(neg_examples)
 
+    # 已經先用第一章圖片製造出500個正樣本和5000個負樣本。
+
     # Extract pos/neg features
+    print("Extract pos/neg features...")
+    # Forward samples (2 times)
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([244, 3, 107, 107])
+    # feat.size : torch.Size([244, 4608])
+
     pos_feats = forward_samples(model, image, pos_examples)
+
+    # Batch size is 256 and neg_sample size is 5000
+    # 5000/256 = 19.53125 Hence, 256*19 = 4864 
+    # 4864 + 136 = 5000 > that is why total 20 times.
+
+    # Forward samples (20 times)
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([256, 3, 107, 107])
+    # feat.size : torch.Size([256, 4608])
+    # regions.size : torch.Size([136, 3, 107, 107])
+    # feat.size : torch.Size([136, 4608])
     neg_feats = forward_samples(model, image, neg_examples)
 
     # Initial training
+    print("f. Initial training")
+    ## def train(model, criterion, optimizer, pos_feats, neg_feats, maxiter, in_layer='fc4')
+    ## maxiter_init: 50
     train(model, criterion, init_optimizer, pos_feats, neg_feats, opts['maxiter_init'])
     del init_optimizer, neg_feats
     torch.cuda.empty_cache()
 
     # Train bbox regressor
+    ## trans_bbreg: 0.3
+    ## scale_bbreg: 1.6
+    ## aspect_bbreg: 1.1
+    ## n_bbreg: 1000
+    ## overlap_bbreg: [0.6, 1]
+    print("Train bbox regressor...")
     bbreg_examples = SampleGenerator('uniform', image.size, opts['trans_bbreg'], opts['scale_bbreg'], opts['aspect_bbreg'])(
                         target_bbox, opts['n_bbreg'], opts['overlap_bbreg'])
     bbreg_feats = forward_samples(model, image, bbreg_examples)
@@ -160,11 +252,21 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
     torch.cuda.empty_cache()
 
     # Init sample generators for update
+    print("g. Init sample generators for update")
+    ## trans: 0.6
+    ## scale: 1.05
     sample_generator = SampleGenerator('gaussian', image.size, opts['trans'], opts['scale'])
+    ## trans_pos: 0.1
+    ## scale_pos: 1.3
     pos_generator = SampleGenerator('gaussian', image.size, opts['trans_pos'], opts['scale_pos'])
+    ## trans_neg: 2
+    ## scale_neg: 1.3
     neg_generator = SampleGenerator('uniform', image.size, opts['trans_neg'], opts['scale_neg'])
 
     # Init pos/neg features for update
+    print("h. Init pos/neg features for update")
+    ## overlap_neg_init: [0, 0.5]
+    ## n_neg_update: 200
     neg_examples = neg_generator(target_bbox, opts['n_neg_update'], opts['overlap_neg_init'])
     neg_feats = forward_samples(model, image, neg_examples)
     pos_feats_all = [pos_feats]
@@ -173,6 +275,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
     spf_total = time.time() - tic
 
     # Display
+    print("i. Display")
     savefig = savefig_dir != ''
     if display or savefig:
         dpi = 80.0
@@ -184,11 +287,12 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
         fig.add_axes(ax)
         im = ax.imshow(image, aspect='auto')
 
-        if gt is not None:
+        if gt is not None: 
+            # Green
             gt_rect = plt.Rectangle(tuple(gt[0, :2]), gt[0, 2], gt[0, 3],
                                     linewidth=3, edgecolor="#00ff00", zorder=1, fill=False)
             ax.add_patch(gt_rect)
-
+        # red
         rect = plt.Rectangle(tuple(result_bb[0, :2]), result_bb[0, 2], result_bb[0, 3],
                              linewidth=3, edgecolor="#ff0000", zorder=1, fill=False)
         ax.add_patch(rect)
@@ -197,19 +301,26 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
             plt.pause(.01)
             plt.draw()
         if savefig:
+            print("Save the 0000.jpg picture")
             fig.savefig(os.path.join(savefig_dir, '0000.jpg'), dpi=dpi)
 
-    # Main loop
-    for i in range(1, len(img_list)):
+### FIXME: 小註解 在進入main loop之前 out layer conv3，去解析出feature map
+        # 進入 main loop 就是開始訓練不同的影片 out layer fc6
 
+    # Main loop
+    print("j. Main Loop")
+    for i in range(1, len(img_list)):
         tic = time.time()
         # Load image
         image = Image.open(img_list[i]).convert('RGB')
 
         # Estimate target bbox
+        # 生成256個候選匡
         samples = sample_generator(target_bbox, opts['n_samples'])
         sample_scores = forward_samples(model, image, samples, out_layer='fc6')
 
+        # top_scores tensor([15.6350, 15.5444, 15.3375, 11.5216,  9.8178], device='cuda:0')
+        # top_idx tensor([172, 164,  63, 187, 115], device='cuda:0')
         top_scores, top_idx = sample_scores[:, 1].topk(5)
         top_idx = top_idx.cpu()
         target_score = top_scores.mean()

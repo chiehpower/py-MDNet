@@ -3,7 +3,11 @@ from PIL import Image
 
 from .utils import overlap_ratio
 
-
+# For example,
+## trans_pos: 0.1 
+## scale_pos: 1.3
+## n_pos_init: 500 (最大集合)
+## overlap_pos_init: [0.7, 1]
 class SampleGenerator():
     def __init__(self, type_, img_size, trans=1, scale=1, aspect=None, valid=False):
         self.type = type_
@@ -20,11 +24,16 @@ class SampleGenerator():
 
         # (center_x, center_y, w, h)
         sample = np.array([bb[0] + bb[2] / 2, bb[1] + bb[3] / 2, bb[2], bb[3]], dtype='float32')
+        # generate n 個 bbox samples.
         samples = np.tile(sample[None, :], (n ,1))
 
-        # vary aspect ratio
+        # vary aspect ratio 改變寬高比
         if self.aspect is not None:
+            # self.aspect : 1.1
+            # Fake ratio
             ratio = np.random.rand(n, 2) * 2 - 1
+            # Alter the "w, h" values of sample bbox
+            # the center_x, center_y are still same.
             samples[:, 2:] *= self.aspect ** ratio
 
         # sample generation
@@ -44,6 +53,8 @@ class SampleGenerator():
             samples[:, 2:] *= self.scale ** (np.random.rand(n, 1) * 2 - 1)
 
         # adjust bbox range
+        ## self.img_size - 10 = [342 278]  
+        ## img_size = [352 288]
         samples[:, 2:] = np.clip(samples[:, 2:], 10, self.img_size - 10)
         if self.valid:
             samples[:, :2] = np.clip(samples[:, :2], samples[:, 2:] / 2, self.img_size - samples[:, 2:] / 2 - 1)
@@ -56,6 +67,7 @@ class SampleGenerator():
         return samples
 
     def __call__(self, bbox, n, overlap_range=None, scale_range=None):
+        # n = 500, 2500, 2500 ... For each frame, (256 candidates, 50 Pos samples and 200 neg samples) ...
 
         if overlap_range is None and scale_range is None:
             return self._gen_samples(bbox, n)
@@ -66,7 +78,6 @@ class SampleGenerator():
             factor = 2
             while remain > 0 and factor < 16:
                 samples_ = self._gen_samples(bbox, remain * factor)
-
                 idx = np.ones(len(samples_), dtype=bool)
                 if overlap_range is not None:
                     r = overlap_ratio(samples_, bbox)

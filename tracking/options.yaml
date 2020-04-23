@@ -1,7 +1,8 @@
 use_gpu: true
 
 # model path
-# model_path: "models/mdnet_imagenet_vid.pth"
+# model_path: "models/mdnet_imagenet_vid.pth" # for DragonBaby
+# FIXME: for VOT datasets   
 model_path: "models/mdnet_vot-otb.pth"
 
 # input size
@@ -35,7 +36,8 @@ trans_bbreg: 0.3
 scale_bbreg: 1.6
 aspect_bbreg: 1.1
 
-# initial training
+# initial training 
+# Multi-domain model samples
 lr_init: 0.0005
 maxiter_init: 50
 n_pos_init: 500

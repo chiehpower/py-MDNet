@@ -9,12 +9,14 @@ def gen_config(args):
         # generate config from a sequence name
 
         # seq_home = 'datasets/OTB'
+        # FIXME: for VOT datasets
         seq_home = 'datasets/VOT/vot2013'
         result_home = 'results'
 
         seq_name = args.seq
         img_dir = os.path.join(seq_home, seq_name, 'img')
-        # gt_path = os.path.join(seq_home, seq_name, 'groundtruth_rect.txt')
+        # gt_path = os.path.join(seq_home, seq_name, 'groundtruth_rect.txt') # for DragonBaby
+        # FIXME: for VOT datasets   
         gt_path = os.path.join(seq_home, seq_name, 'groundtruth.txt')
 
         img_list = os.listdir(img_dir)
@@ -28,7 +30,7 @@ def gen_config(args):
         result_dir = os.path.join(result_home, seq_name)
         if not os.path.exists(result_dir):
             os.makedirs(result_dir)
-        savefig_dir = os.path.join(result_dir, 'figs')
+        savefig_dir = os.path.join(result_dir, 'figs') # Images
         result_path = os.path.join(result_dir, 'result.json')
 
     elif args.json != '':

@@ -45,14 +45,15 @@ class MDNet(nn.Module):
     def __init__(self, model_path=None, K=1):
         super(MDNet, self).__init__()
         self.K = K
+        # shared lauers
         self.layers = nn.Sequential(OrderedDict([
                 ('conv1', nn.Sequential(nn.Conv2d(3, 96, kernel_size=7, stride=2),
                                         nn.ReLU(inplace=True),
-                                        nn.LocalResponseNorm(2),
+                                        # nn.LocalResponseNorm(2), # it will impact the trt enigne on converting.
                                         nn.MaxPool2d(kernel_size=3, stride=2))),
                 ('conv2', nn.Sequential(nn.Conv2d(96, 256, kernel_size=5, stride=2),
                                         nn.ReLU(inplace=True),
-                                        nn.LocalResponseNorm(2),
+                                        # nn.LocalResponseNorm(2), # it will impact the trt enigne on converting.
                                         nn.MaxPool2d(kernel_size=3, stride=2))),
                 ('conv3', nn.Sequential(nn.Conv2d(256, 512, kernel_size=3, stride=1),
                                         nn.ReLU(inplace=True))),
@@ -61,7 +62,7 @@ class MDNet(nn.Module):
                 ('fc5',   nn.Sequential(nn.Dropout(0.5),
                                         nn.Linear(512, 512),
                                         nn.ReLU(inplace=True)))]))
-
+        # Domain-specific layers 二分類層 對應k個，如果有k個視頻，就有k個branches
         self.branches = nn.ModuleList([nn.Sequential(nn.Dropout(0.5),
                                                      nn.Linear(512, 2)) for _ in range(K)])
 
@@ -88,6 +89,7 @@ class MDNet(nn.Module):
         for name, module in self.layers.named_children():
             append_params(self.params, module, name)
         for k, module in enumerate(self.branches):
+            # k from 0 to 15
             append_params(self.params, module, 'fc6_{:d}'.format(k))
 
     def set_learnable_params(self, layers):
@@ -122,9 +124,12 @@ class MDNet(nn.Module):
                     x = x.view(x.size(0), -1)
                 if name == out_layer:
                     return x
-
-        x = self.branches[k](x)
+                    
+        x = self.branches[k](x) # k meaning is which class.
+        # FIXME:  # normal output is here.
         if out_layer=='fc6':
+            print("out_layer fc6")
+            # print("x.shape",x.shape)
             return x
         elif out_layer=='fc6_softmax':
             return F.softmax(x, dim=1)
@@ -144,8 +149,8 @@ class MDNet(nn.Module):
             self.layers[i][0].weight.data = torch.from_numpy(np.transpose(weight, (3, 2, 0, 1)))
             self.layers[i][0].bias.data = torch.from_numpy(bias[:, 0])
 
-
-class BCELoss(nn.Module):
+# BinaryCrossEntropy function
+class BCELoss(nn.Module): # criterion
     def forward(self, pos_score, neg_score, average=True):
         pos_loss = -F.log_softmax(pos_score, dim=1)[:, 1]
         neg_loss = -F.log_softmax(neg_score, dim=1)[:, 0]
@@ -164,9 +169,9 @@ class Accuracy():
         return acc.item()
 
 
-class Precision():
+class Precision(): # Precision
     def __call__(self, pos_score, neg_score):
-        scores = torch.cat((pos_score[:, 1], neg_score[:, 1]), 0)
-        topk = torch.topk(scores, pos_score.size(0))[1]
+        scores = torch.cat((pos_score[:, 1], neg_score[:, 1]), 0) # 往下堆疊
+        topk = torch.topk(scores, pos_score.size(0))[1] # 挑選幾個最大的值
         prec = (topk < pos_score.size(0)).float().sum() / (pos_score.size(0) + 1e-8)
         return prec.item()
