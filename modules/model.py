@@ -128,8 +128,6 @@ class MDNet(nn.Module):
         x = self.branches[k](x) # k meaning is which class.
         # FIXME:  # normal output is here.
         if out_layer=='fc6':
-            print("out_layer fc6")
-            # print("x.shape",x.shape)
             return x
         elif out_layer=='fc6_softmax':
             return F.softmax(x, dim=1)

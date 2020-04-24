@@ -76,3 +76,8 @@ If you're using this code for your research, please cite:
 
 ### Bounding Box Regression
 根據給定的第一幀，訓練一個線性回歸模型（使用目標附近的樣本的conv3特徵）。在接下來的序列幀中，使用訓練好的回歸模型在估計好的可靠的候選目標中調整目標位置。
+
+# Thinking
+1. 在training part 輸出onnx之後，要在tracking part裡面輸入，那值會如何使用？
+   - 延伸：應該要有幾個輸出值？
+2. 在tracking part時，network會如何去解析出object在整體裡面的哪裡？

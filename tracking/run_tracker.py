@@ -23,10 +23,10 @@ from gen_config import gen_config
 opts = yaml.safe_load(open('tracking/options.yaml','r'))
 
 # Extract pos/neg features
-def forward_samples(model, image, samples, out_layer='conv3'):
+def forward_samples(model, image, samples, out_layer='conv3', Show_image=False):
     model.eval()
     # image.size = original size
-    extractor = RegionExtractor(image, samples, opts)
+    extractor = RegionExtractor(image, samples, opts, Show_image)
     print("\n Forward samples \n")
     for i, regions in enumerate(extractor):
         # regions.size = 256,3,107,107
@@ -60,9 +60,8 @@ def train(model, criterion, optimizer, pos_feats, neg_feats, maxiter, in_layer='
         neg_idx = np.concatenate([neg_idx, np.random.permutation(neg_feats.size(0))])
     pos_pointer = 0
     neg_pointer = 0
-    print("maxiter: ",maxiter)
+    # maxiter = 50
     for i in range(maxiter):
-        print(i)
         # select pos idx
         pos_next = pos_pointer + batch_pos
         pos_cur_idx = pos_idx[pos_pointer:pos_next]
@@ -179,7 +178,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
     # regions.size : torch.Size([244, 3, 107, 107])
     # feat.size : torch.Size([244, 4608])
 
-    pos_feats = forward_samples(model, image, pos_examples)
+    pos_feats = forward_samples(model, image, pos_examples, Show_image=False)
 
     # Batch size is 256 and neg_sample size is 5000
     # 5000/256 = 19.53125 Hence, 256*19 = 4864 
@@ -226,7 +225,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
     # feat.size : torch.Size([256, 4608])
     # regions.size : torch.Size([136, 3, 107, 107])
     # feat.size : torch.Size([136, 4608])
-    neg_feats = forward_samples(model, image, neg_examples)
+    neg_feats = forward_samples(model, image, neg_examples, Show_image=False)
 
     # Initial training
     print("f. Initial training")
@@ -245,7 +244,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
     print("Train bbox regressor...")
     bbreg_examples = SampleGenerator('uniform', image.size, opts['trans_bbreg'], opts['scale_bbreg'], opts['aspect_bbreg'])(
                         target_bbox, opts['n_bbreg'], opts['overlap_bbreg'])
-    bbreg_feats = forward_samples(model, image, bbreg_examples)
+    bbreg_feats = forward_samples(model, image, bbreg_examples, Show_image=False)
     bbreg = BBRegressor(image.size)
     bbreg.train(bbreg_feats, bbreg_examples, target_bbox)
     del bbreg_feats
@@ -268,7 +267,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
     ## overlap_neg_init: [0, 0.5]
     ## n_neg_update: 200
     neg_examples = neg_generator(target_bbox, opts['n_neg_update'], opts['overlap_neg_init'])
-    neg_feats = forward_samples(model, image, neg_examples)
+    neg_feats = forward_samples(model, image, neg_examples, Show_image=False)
     pos_feats_all = [pos_feats]
     neg_feats_all = [neg_feats]
 
@@ -304,8 +303,6 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
             print("Save the 0000.jpg picture")
             fig.savefig(os.path.join(savefig_dir, '0000.jpg'), dpi=dpi)
 
-### FIXME: 小註解 在進入main loop之前 out layer conv3，去解析出feature map
-        # 進入 main loop 就是開始訓練不同的影片 out layer fc6
 
     # Main loop
     print("j. Main Loop")
@@ -316,12 +313,14 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
 
         # Estimate target bbox
         # 生成256個候選匡
+        # n_samples : 256
         samples = sample_generator(target_bbox, opts['n_samples'])
-        sample_scores = forward_samples(model, image, samples, out_layer='fc6')
-
+        sample_scores = forward_samples(model, image, samples, out_layer='fc6', Show_image=False)
+        # sample_scores.shape = torch.Size([256, 2])
+        
         # top_scores tensor([15.6350, 15.5444, 15.3375, 11.5216,  9.8178], device='cuda:0')
         # top_idx tensor([172, 164,  63, 187, 115], device='cuda:0')
-        top_scores, top_idx = sample_scores[:, 1].topk(5)
+        top_scores, top_idx = sample_scores[:, 1].topk(5) # Pick the largest five and include his position
         top_idx = top_idx.cpu()
         target_score = top_scores.mean()
         target_bbox = samples[top_idx]
@@ -340,7 +339,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
             bbreg_samples = samples[top_idx]
             if top_idx.shape[0] == 1:
                 bbreg_samples = bbreg_samples[None,:]
-            bbreg_feats = forward_samples(model, image, bbreg_samples)
+            bbreg_feats = forward_samples(model, image, bbreg_samples, Show_image=False)
             bbreg_samples = bbreg.predict(bbreg_feats, bbreg_samples)
             bbreg_bbox = bbreg_samples.mean(axis=0)
         else:
@@ -353,13 +352,13 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
         # Data collect
         if success:
             pos_examples = pos_generator(target_bbox, opts['n_pos_update'], opts['overlap_pos_update'])
-            pos_feats = forward_samples(model, image, pos_examples)
+            pos_feats = forward_samples(model, image, pos_examples, Show_image=False)
             pos_feats_all.append(pos_feats)
             if len(pos_feats_all) > opts['n_frames_long']:
                 del pos_feats_all[0]
 
             neg_examples = neg_generator(target_bbox, opts['n_neg_update'], opts['overlap_neg_update'])
-            neg_feats = forward_samples(model, image, neg_examples)
+            neg_feats = forward_samples(model, image, neg_examples, Show_image=False)
             neg_feats_all.append(neg_feats)
             if len(neg_feats_all) > opts['n_frames_short']:
                 del neg_feats_all[0]

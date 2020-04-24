@@ -39,6 +39,10 @@ def train_mdnet(opts):
     optimizer = set_optimizer(model, opts['lr'], opts['lr_mult'])
 
     # Main trainig loop
+    ### FIXME: 
+    ## 小註解 在進入main loop之前 out layer conv3，去解析出feature map
+    ## 進入 main loop 就是開始訓練不同的影片 out layer fc6
+
     for i in range(opts['n_cycles']):
         print('==== Start Cycle {:d}/{:d} ===='.format(i + 1, opts['n_cycles']))
 
